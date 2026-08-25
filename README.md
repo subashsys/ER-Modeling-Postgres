@@ -1,60 +1,14 @@
 # E-R Modelling
 
-This document tracks my learning journey on **Entity-Relationship (E-R) Modelling** — going from system analysis to logical modelling, and eventually to physical database design with PostgreSQL + Prisma ORM, covering keys, normalization, indexing, ACID, and joins along the way.
+Notes and examples from learning database design — from system analysis to E-R diagrams to Prisma schema. Tech stack: PostgreSQL + Prisma.
 
 ---
 
-## Why System Analysis Before Modelling
+## Why System Analysis First
 
-Before drawing a single table, real-world requirements need to be gathered and read carefully — this is **system analysis**. For example: *"An institution has students who enroll in multiple subjects."* This one sentence hides all the information needed to design the database — but only if it's analyzed properly for entities, attributes, and relationship cardinality.
+Before designing tables, requirements need to be read carefully to find entities, attributes, and how they relate — this is **system analysis**. It's followed by **logical modelling** (E-R diagrams, tech-agnostic) and then **physical modelling** (actual database schema). Skipping straight to tables is how you end up missing junction tables or breaking relationships.
 
-The process professionals follow is:
-
-1. **System Analysis** — understand the real-world problem in plain language.
-2. **Logical (Conceptual) Modelling** — identify entities, attributes, and relationships. Technology-agnostic — no database, no data types yet. This is where **E-R diagrams** and **crow's foot notation** live.
-3. **Physical Modelling** — convert the logical model into actual database tables, columns, data types, and constraints (in our case, a PostgreSQL schema written using Prisma).
-
-Skipping straight to physical modelling (i.e., jumping into writing tables) without this analysis is the most common reason beginner database designs end up with duplicate data, broken relationships, or missing junction tables.
-
----
-
-## Thinking in Entities
-
-### Entities vs Attributes
-
-An **entity** is a real-world "thing" that needs its own identity and records (e.g., `Student`, `Subject`, `Doctor`).
-
-An **attribute** is a property that describes an entity (e.g., `name`, `age`, `email`).
-
-
-### Types of Attributes
-
-| Type | Meaning | Example |
-|---|---|---|
-| Simple | Atomic, can't be broken down further | `age` |
-| Composite | Can be split into smaller parts | `full_name` → `first_name` + `last_name` |
-| Derived | Can be calculated from other stored data — usually shouldn't be stored | `age` (when `date_of_birth` is already stored) |
-
-### Primary Keys:
-
-- **Natural key** — something that already exists in real life and is unique (e.g., email, national ID).
-- **Surrogate key** — an artificial ID generated purely for uniqueness (e.g., auto-increment integer, UUID).
-
----
-
-## Relationship Types & Crow's Foot Notation
-
-### The Three Relationship Types
-
-| Relationship | Meaning | Example |
-|---|---|---|
-| **One-to-One (1:1)** | One instance of A relates to exactly one instance of B | `Patient` ↔ `EmergencyContact` |
-| **One-to-Many (1:N)** | One instance of A relates to many instances of B, but each B belongs to only one A | `Publisher` → `Book` |
-| **Many-to-Many (M:N)** | Many instances of A relate to many instances of B, and vice versa | `Student` ↔ `Subject` |
-
-### Crow's Foot Notation Symbols
-
-Crow's foot notation is the industry-standard way to draw E-R diagrams. Each end of a relationship line has a symbol describing cardinality:
+## Crow's Foot Notation
 
 | Symbol | Meaning |
 |---|---|
@@ -63,68 +17,27 @@ Crow's foot notation is the industry-standard way to draw E-R diagrams. Each end
 | `\|{` | One or many |
 | `o{` | Zero or many |
 
+## Relationship Types
 
-### Example 1: Student ↔ Subject (Many-to-Many)
+- **1:1** — e.g. Patient ↔ EmergencyContact
+- **1:N** — e.g. Publisher → Book
+- **M:N** — e.g. Student ↔ Subject (needs a junction table, since a column can only hold one FK value)
 
-A relational database column can only hold one value per row — so true M:N relationships can't be modeled directly. The solution is a **junction table** (also called a join/associative/linking table) that breaks one M:N relationship into two 1:N relationships.
+## Reading a Table (Entity Box)
 
-```mermaid
-erDiagram
-  STUDENT ||--o{ ENROLLMENT : has
-  SUBJECT ||--o{ ENROLLMENT : has
-  STUDENT {
-    int id PK
-    string name
-  }
-  SUBJECT {
-    int id PK
-    string title
-  }
-  ENROLLMENT {
-    int id PK
-    int student_id FK
-    int subject_id FK
-  }
-```
+Each box in a diagram = one table. Inside it:
 
-**Reading it:** One Student relates to zero-or-many Enrollments. One Subject relates to zero-or-many Enrollments. Each Enrollment row represents one specific "this student takes this subject" fact.
+- **PK (Primary Key)** — the column that uniquely identifies each row, like a fingerprint. No two rows share the same PK.
+- **FK (Foreign Key)** — a column that stores another table's PK, used to link two tables together.
+- Every other field is just a regular attribute (name, date, phone, etc).
 
-A junction table doesn't represent a "thing" the way Student or Subject does — it represents the **fact that a connection exists** between two entities. Junction tables can also carry their own attributes about the relationship (e.g., `enrollment_date`, `grade`).
+For example, in `TREATMENT` below, `doctor_id` and `patient_id` are both FKs — they're what tie one Doctor and one Patient together for that specific record.
 
-### Example 2: Bookstore (1:N + M:N combined)
+### Example: Hospital System
 
-Scenario: *A publisher publishes many books (1:N). A book can have multiple authors, and an author can write multiple books (M:N).*
+**Problem statement:** *A hospital has doctors. Each doctor can treat many patients, and each patient can be treated by many doctors over time. Each patient has exactly one primary emergency contact person.*
 
-```mermaid
-erDiagram
-  PUBLISHER ||--o{ BOOK : publishes
-  BOOK ||--o{ BOOKAUTHOR : has
-  AUTHOR ||--o{ BOOKAUTHOR : has
-  PUBLISHER {
-    int id PK
-    string name
-  }
-  BOOK {
-    int id PK
-    string title
-    int publisher_id FK
-  }
-  AUTHOR {
-    int id PK
-    string name
-  }
-  BOOKAUTHOR {
-    int id PK
-    int book_id FK
-    int author_id FK
-  }
-```
-
-**Key observation:** `Publisher → Book` is a direct 1:N — no junction table needed, the FK just sits on `Book`. `Book ↔ Author` is M:N — it needs the `BookAuthor` junction table.
-
-### Example 3: Hospital (M:N + 1:1 combined)
-
-Scenario: *A doctor treats many patients, and a patient can be treated by many doctors (M:N). Each patient has exactly one primary emergency contact (1:1).*
+From this: Doctor↔Patient is M:N (both sides say "many"), and Patient↔EmergencyContact is 1:1 (both sides say "one").
 
 ```mermaid
 erDiagram
@@ -155,16 +68,58 @@ erDiagram
   }
 ```
 
-**Key observation:** `Doctor ↔ Patient` needs a junction table (`Treatment`) — think of it as a logbook: every time a doctor treats a patient, one new row is added. `Patient ↔ EmergencyContact` is 1:1 — both ends show `||` (single line, no fork), and no junction table is needed; the FK just sits on the "dependent" entity (`EmergencyContact`, since it only makes sense in the context of a patient).
+Doctor ↔ Patient is M:N, resolved with the `Treatment` junction table. Patient ↔ EmergencyContact is 1:1, so the FK just sits on `EmergencyContact` with a unique constraint — no junction table needed.
 
-### Key Rule: FK Always Goes on the "Many" Side
+## Prisma Translation
 
-For a 1:N relationship, the foreign key always lives on the table representing the "many" side, pointing back to the "one" side's primary key.
+Each entity box becomes a `model`. Each FK becomes a scalar field + a `@relation`. Here's how the hospital diagram maps over, piece by piece:
 
-For an M:N relationship, since neither side can hold a single FK to represent "many," a junction table is introduced — and it holds foreign keys to **both** original entities, effectively turning one M:N relationship into two 1:N relationships.
+**Doctor & Patient** — plain entities to start, plus a `Treatment[]` field. That array isn't a real column; it just lets Prisma fetch `doctor.treatments` in code.
 
-For a 1:1 relationship, the foreign key goes on whichever entity is more "dependent" on the other for its existence, and is marked as **unique** to enforce the one-to-one constraint (covered further in Module 3, once we translate this into Prisma schema).
+```prisma
+model Doctor {
+  id         Int         @id @default(autoincrement())
+  name       String
+  specialty  String
+  treatments Treatment[]
+}
+
+model Patient {
+  id               Int               @id @default(autoincrement())
+  name             String
+  dob              DateTime
+  treatments       Treatment[]
+  emergencyContact EmergencyContact?
+}
+```
+
+**Treatment** — the junction table for the M:N. It holds two FKs, one to each side. This is what turns "many doctors ↔ many patients" into two ordinary 1:N relationships.
+
+```prisma
+model Treatment {
+  id        Int      @id @default(autoincrement())
+  date      DateTime
+  doctorId  Int
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  patientId Int
+  patient   Patient  @relation(fields: [patientId], references: [id])
+}
+```
+
+**EmergencyContact** — the 1:1 side. Same FK pattern as above, but `patientId` is marked `@unique`, which is the one thing stopping a patient from having more than one contact.
+
+```prisma
+model EmergencyContact {
+  id        Int     @id @default(autoincrement())
+  name      String
+  phone     String
+  patientId Int     @unique
+  patient   Patient @relation(fields: [patientId], references: [id])
+}
+```
+
+**Key takeaway:** M:N → separate junction model with two FKs. 1:1 → FK on the dependent model with `@unique`. 1:N → FK on the "many" model, no `@unique`.
 
 ---
 
-*More modules coming soon: Prisma schema translation, normalization (1NF–3NF), indexing, ACID & transactions, and joins.*
+*Next: normalization, indexing, ACID, joins.*

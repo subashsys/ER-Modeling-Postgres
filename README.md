@@ -121,5 +121,68 @@ model EmergencyContact {
 **Key takeaway:** M:N → separate junction model with two FKs. 1:1 → FK on the dependent model with `@unique`. 1:N → FK on the "many" model, no `@unique`.
 
 ---
+# Normalization
 
-*Next: normalization, indexing, ACID, joins.*
+Normalization is a set of rules for structuring tables so that fixing one fact means updating exactly one row — avoiding **update, delete, and insert anomalies** caused by duplicated data.
+
+**Example problem** — a single unnormalized table:
+
+| student_id | subject | teacher_name | teacher_phone |
+|---|---|---|---|
+| 1 | Math | Mr. Sharma | 98765 |
+| 1 | Nepali | Mr. Sharma | 98765 |
+| 2 | Math | Mr. Sharma | 98765 |
+
+If Mr. Sharma changes his phone number, it has to be updated in every row he appears in — miss one, and the data contradicts itself.
+
+### 1NF — Atomic Columns
+
+Every column holds one single value; no repeating groups like `subject1, subject2, subject3`. A comma-separated list in one column (e.g. `"Math, Nepali"`) breaks 1NF — it should be split into one row per value.
+
+### 2NF — Full Dependency on the Whole Key
+
+Applies only when the primary key is composite (e.g. `(student_id, subject)`). Every other column must depend on the **entire** key, not just part of it. Above, `teacher_phone` depends only on `subject`, not on `student_id` — a **partial dependency**. Fix: move `subject` + `teacher_phone` into their own table.
+
+### 3NF — No Transitive Dependencies
+
+Every column must depend directly on the key — not on another non-key column. Above, `teacher_phone` depends on `teacher_name`, which is itself just a regular column, not the key. Fix: pull `Teacher` into its own table entirely.
+
+```prisma
+model Subject {
+  id        Int     @id @default(autoincrement())
+  name      String
+  teacherId Int
+  teacher   Teacher @relation(fields: [teacherId], references: [id])
+}
+
+model Teacher {
+  id       Int       @id @default(autoincrement())
+  name     String
+  phone    String
+  subjects Subject[]
+}
+```
+
+Now `Mr. Sharma`'s phone number exists in exactly one row, regardless of how many subjects he teaches.
+
+**One-line summary:** *Every non-key column must depend on the key, the whole key, and nothing but the key.*
+
+### BCNF — A Stricter 3NF
+
+For every dependency `X → Y`, `X` must be a candidate key on its own. This only diverges from 3NF in edge cases with overlapping composite keys — rare in typical CRUD apps, but good to recognize by name.
+
+### Denormalization — Breaking the Rules on Purpose
+
+Full normalization means more joins to read combined data, which costs performance. Denormalization deliberately duplicates data to avoid that cost — valid when done intentionally, not by accident. Classic example: storing `priceAtPurchase` on an order line even though `Product.price` already exists elsewhere, because the order should freeze the price at that point in time, not reflect future price changes.
+
+| Form | Rule |
+|---|---|
+| 1NF | Atomic columns, no repeating groups |
+| 2NF | No partial dependency (composite keys only) |
+| 3NF | No transitive dependency |
+| BCNF | Every determinant is a candidate key |
+| Denormalization | Intentional duplication for read performance/history |
+
+---
+
+*Next: keys & constraints, indexing, ACID, joins.*

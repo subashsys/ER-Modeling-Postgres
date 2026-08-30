@@ -255,4 +255,22 @@ Required fields are a form of data integrity enforced by the database itself —
 
 ---
 
-*Next: indexing, ACID, joins.*
+## Module 6: Indexing
+
+An index is a separate, sorted lookup structure the database keeps alongside a table, so it can jump straight to matching rows instead of scanning every row one by one. Primary keys, foreign keys, and `@unique` fields are indexed automatically — anything else needs an explicit `@@index`.
+
+```prisma
+model Patient {
+  id    Int    @id @default(autoincrement())
+  name  String
+  phone String
+
+  @@index([phone])
+}
+```
+
+This makes `WHERE phone = '98765'` fast, since receptionist lookups by phone are frequent but `phone` isn't a key on its own. Indexes speed up reads but add a small cost to every write, so only columns actually used in `WHERE`, `ORDER BY`, or `JOIN` are worth indexing.
+
+---
+
+*Next: ACID, joins.*

@@ -3,6 +3,99 @@
 Notes and examples from learning database design — from system analysis to E-R diagrams to Prisma schema. Tech stack: PostgreSQL + Prisma.
 
 ---
+![Movie Ticket Booking ERD](./images/erd.png)
+
+## Movie Ticket Booking System
+
+**Problem statement:** *A cinema has multiple screens (halls). Each screen shows movies at scheduled showtimes. A customer can book a ticket for a specific showtime, choosing one or more seats. Each screen has a fixed set of seats. A seat can only be booked once per showtime — it can't be double-booked. A movie can be shown on many different screens at many different times, and a screen hosts many different movies across the week. Each booking should also record the payment amount and status (paid/pending/failed).*
+
+**Reasoning:**
+- `Movie ↔ Screen` is M:N, but no new junction table is needed — `Showtime` already sits between them (it holds `movieId` + `screenId`, plus its own `date`/`startTime`), so it naturally does the job of a junction table.
+- `Booking ↔ Seat` is also M:N, and needs a dedicated junction table (`SeatBooking`). Since the real business rule is "no seat double-booked for the same *showtime*," `showtimeId` is duplicated onto `SeatBooking` itself — a `@@unique` constraint can only be enforced on columns physically present on that table, not across a join.
+- `Booking ↔ Payment` is 1:N, not 1:1 — a booking can have a failed payment attempt followed by a successful retry, and both need to be recorded.
+
+```prisma
+model Customer {
+  id       Int       @id @default(autoincrement())
+  name     String
+  email    String    @unique
+  phone    String
+  bookings Booking[]
+}
+
+model Movie {
+  id              Int        @id @default(autoincrement())
+  title           String
+  durationMinutes Int
+  language        String
+  showtimes       Showtime[]
+}
+
+model Screen {
+  id         Int        @id @default(autoincrement())
+  name       String
+  totalSeats Int
+  seats      Seat[]
+  showtimes  Showtime[]
+}
+
+model Seat {
+  id           Int           @id @default(autoincrement())
+  seatNumber   String
+  screenId     Int
+  screen       Screen        @relation(fields: [screenId], references: [id])
+  seatBookings SeatBooking[]
+
+  @@unique([screenId, seatNumber])   // no duplicate seat labels on the same screen
+}
+
+model Showtime {
+  id           Int           @id @default(autoincrement())
+  date         DateTime
+  startTime    DateTime
+  movieId      Int
+  movie        Movie         @relation(fields: [movieId], references: [id])
+  screenId     Int
+  screen       Screen        @relation(fields: [screenId], references: [id])
+  bookings     Booking[]
+  seatBookings SeatBooking[]
+}
+
+model Booking {
+  id           Int           @id @default(autoincrement())
+  bookingTime  DateTime      @default(now())
+  customerId   Int
+  customer     Customer      @relation(fields: [customerId], references: [id])
+  showtimeId   Int
+  showtime     Showtime      @relation(fields: [showtimeId], references: [id])
+  seatBookings SeatBooking[]
+  payments     Payment[]
+}
+
+// Junction table for Booking <-> Seat, scoped per Showtime
+model SeatBooking {
+  id         Int      @id @default(autoincrement())
+  bookingId  Int
+  booking    Booking  @relation(fields: [bookingId], references: [id])
+  seatId     Int
+  seat       Seat     @relation(fields: [seatId], references: [id])
+  showtimeId Int
+  showtime   Showtime @relation(fields: [showtimeId], references: [id])
+
+  @@unique([showtimeId, seatId])   // one seat, one showtime, one booking — ever
+}
+
+model Payment {
+  id        Int      @id @default(autoincrement())
+  amount    Decimal
+  status    String   // "paid" | "pending" | "failed"
+  paidAt    DateTime?
+  bookingId Int
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+}
+```
+
+---
 
 ## Why System Analysis First
 

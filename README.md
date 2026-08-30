@@ -273,4 +273,50 @@ This makes `WHERE phone = '98765'` fast, since receptionist lookups by phone are
 
 ---
 
-*Next: ACID, joins.*
+## Module 7: ACID
+
+A **transaction** is a group of operations that must all succeed together, or none at all — e.g. a bank transfer, where debiting one account and crediting another only make sense as a single unit.
+
+- **Atomicity** — all steps in a transaction succeed, or none do. If one step fails, everything is rolled back.
+- **Consistency** — a transaction can only move the database from one valid state to another, never violating constraints (foreign keys, `NOT NULL`, `@unique`, business rules).
+- **Isolation** — concurrent transactions don't interfere with each other's half-finished work; each behaves as if it ran alone.
+- **Durability** — once a transaction is committed, it survives permanently, even if the server crashes immediately after.
+
+```prisma
+model Account {
+  id      Int    @id @default(autoincrement())
+  owner   String
+  balance Int    @default(0)
+}
+```
+
+```javascript
+async function transferMoney(fromId, toId, amount) {
+  return await prisma.$transaction(async (tx) => {
+    const sender = await tx.account.findUnique({ where: { id: fromId } });
+
+    if (sender.balance < amount) {
+      throw new Error("Insufficient balance");
+      // throwing here triggers Atomicity 
+    }
+
+    await tx.account.update({
+      where: { id: fromId },
+      data: { balance: { decrement: amount } },
+    });
+
+    await tx.account.update({
+      where: { id: toId },
+      data: { balance: { increment: amount } },
+    });
+    // once this resolves, both updates commit together — Durability
+    // guarantees this survives even a crash right after
+  });
+}
+```
+
+A single Prisma call (e.g. `prisma.user.update()`) is already wrapped in its own implicit transaction. `$transaction` is needed specifically when **multiple separate operations** must succeed or fail together as one unit — like debiting one account and crediting another.
+
+---
+
+*Next: joins.*

@@ -17,19 +17,14 @@ Before designing tables, requirements need to be read carefully to find entities
 | `\|{` | One or many |
 | `o{` | Zero or many |
 
-## Relationship Types
-
-- **1:1** — e.g. Patient ↔ EmergencyContact
-- **1:N** — e.g. Publisher → Book
-- **M:N** — e.g. Student ↔ Subject (needs a junction table, since a column can only hold one FK value)
 
 ## Reading a Table (Entity Box)
 
 Each box in a diagram = one table. Inside it:
 
-- **PK (Primary Key)** — the column that uniquely identifies each row, like a fingerprint. No two rows share the same PK.
+- **PK (Primary Key)** — the column that uniquely identifies each row. No two rows share the same PK.
 - **FK (Foreign Key)** — a column that stores another table's PK, used to link two tables together.
-- Every other field is just a regular attribute (name, date, phone, etc).
+- Every other field is just a regular attribute.
 
 For example, in `TREATMENT` below, `doctor_id` and `patient_id` are both FKs — they're what tie one Doctor and one Patient together for that specific record.
 
@@ -121,7 +116,8 @@ model EmergencyContact {
 **Key takeaway:** M:N → separate junction model with two FKs. 1:1 → FK on the dependent model with `@unique`. 1:N → FK on the "many" model, no `@unique`.
 
 ---
-# Normalization
+
+## Module 4: Normalization
 
 Normalization is a set of rules for structuring tables so that fixing one fact means updating exactly one row — avoiding **update, delete, and insert anomalies** caused by duplicated data.
 
@@ -185,4 +181,78 @@ Full normalization means more joins to read combined data, which costs performan
 
 ---
 
-*Next: keys & constraints, indexing, ACID, joins.*
+## Module 5: Keys & Constraints
+
+**Referential integrity** is the guarantee that a foreign key always points to a row that actually exists — the database rejects any FK value with no matching parent row. What's more interesting is *what happens when the parent row is deleted or updated*, which `onDelete` / `onUpdate` control.
+
+### `onDelete` Behaviors
+
+| Option | Effect when the parent row is deleted |
+|---|---|
+| `Cascade` | Child rows are deleted automatically along with the parent |
+| `Restrict` | Delete is blocked entirely while child rows still reference it |
+| `SetNull` | Child's FK column is set to `NULL` — row survives, becomes "orphaned" |
+| `NoAction` | No automatic action; delete fails if references exist |
+
+`SetNull` only works if the FK field is nullable (`Int?`) — a required (`Int`) column can never legally hold `NULL`, so Prisma rejects that combination at schema-validation time.
+
+**Choosing the right option is a design decision**, not a default:
+
+```prisma
+model Category {
+  id       Int       @id @default(autoincrement())
+  name     String
+  products Product[]
+}
+
+model Product {
+  id         Int       @id @default(autoincrement())
+  name       String
+  categoryId Int?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+}
+
+model Comment {
+  id     Int    @id @default(autoincrement())
+  text   String
+  postId Int
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+```
+
+- `Product → Category` uses `SetNull`: deleting a category shouldn't destroy the products in it — they just become uncategorized.
+- `Comment → Post` uses `Cascade`: a comment has no meaning once its post is gone, so it should be deleted with it.
+- `Restrict` would fit somewhere like `Order → Customer` if the business rule is "a customer with existing orders can't be deleted until those orders are handled manually."
+
+### `onUpdate`
+
+Same four options, but triggered when the **parent's primary key value itself changes** rather than being deleted. Rarely relevant with auto-increment surrogate keys, since those never change once created — it matters more when a natural key (like an email used as PK) is updated.
+
+### Composite Unique Constraints
+
+```prisma
+model Enrollment {
+  id        Int @id @default(autoincrement())
+  studentId Int
+  subjectId Int
+
+  @@unique([studentId, subjectId])
+}
+```
+
+This does **not** make `studentId` or `subjectId` unique individually — either can repeat many times on their own. It only blocks the exact **pair** from repeating, so the same student can't be enrolled in the same subject twice.
+
+### NOT NULL by Default
+
+Every Prisma field is `NOT NULL` unless marked optional with `?`:
+
+```prisma
+name String   // required
+bio  String?  // optional
+```
+
+Required fields are a form of data integrity enforced by the database itself — once `email` is required, no part of the application ever needs to defensively check for a missing one. Making everything optional "just in case" quietly removes that guarantee and pushes the validation burden into application code instead.
+
+---
+
+*Next: indexing, ACID, joins.*

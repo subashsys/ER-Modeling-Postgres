@@ -117,7 +117,7 @@ model EmergencyContact {
 
 ---
 
-## Module 4: Normalization
+## Normalization
 
 Normalization is a set of rules for structuring tables so that fixing one fact means updating exactly one row — avoiding **update, delete, and insert anomalies** caused by duplicated data.
 
@@ -125,11 +125,11 @@ Normalization is a set of rules for structuring tables so that fixing one fact m
 
 | student_id | subject | teacher_name | teacher_phone |
 |---|---|---|---|
-| 1 | Math | Mr. Sharma | 98765 |
-| 1 | Nepali | Mr. Sharma | 98765 |
-| 2 | Math | Mr. Sharma | 98765 |
+| 1 | Math | Mr. KC | 98765 |
+| 1 | Nepali | Mr. KC | 98765 |
+| 2 | Math | Mr. KC | 98765 |
 
-If Mr. Sharma changes his phone number, it has to be updated in every row he appears in — miss one, and the data contradicts itself.
+If Mr. KC changes his phone number, it has to be updated in every row he appears in — miss one, and the data contradicts itself.
 
 ### 1NF — Atomic Columns
 
@@ -159,7 +159,7 @@ model Teacher {
 }
 ```
 
-Now `Mr. Sharma`'s phone number exists in exactly one row, regardless of how many subjects he teaches.
+Now `Mr. KC`'s phone number exists in exactly one row, regardless of how many subjects he teaches.
 
 **One-line summary:** *Every non-key column must depend on the key, the whole key, and nothing but the key.*
 
@@ -181,7 +181,7 @@ Full normalization means more joins to read combined data, which costs performan
 
 ---
 
-## Module 5: Keys & Constraints
+## Keys & Constraints
 
 **Referential integrity** is the guarantee that a foreign key always points to a row that actually exists — the database rejects any FK value with no matching parent row. What's more interesting is *what happens when the parent row is deleted or updated*, which `onDelete` / `onUpdate` control.
 
@@ -255,7 +255,7 @@ Required fields are a form of data integrity enforced by the database itself —
 
 ---
 
-## Module 6: Indexing
+## Indexing
 
 An index is a separate, sorted lookup structure the database keeps alongside a table, so it can jump straight to matching rows instead of scanning every row one by one. Primary keys, foreign keys, and `@unique` fields are indexed automatically — anything else needs an explicit `@@index`.
 
@@ -273,7 +273,7 @@ This makes `WHERE phone = '98765'` fast, since receptionist lookups by phone are
 
 ---
 
-## Module 7: ACID
+## ACID
 
 A **transaction** is a group of operations that must all succeed together, or none at all — e.g. a bank transfer, where debiting one account and crediting another only make sense as a single unit.
 
@@ -310,8 +310,7 @@ async function transferMoney(fromId, toId, amount) {
       data: { balance: { increment: amount } },
     });
     // once this resolves, both updates commit together — Durability
-    // guarantees this survives even a crash right after
-  });
+    });
 }
 ```
 
@@ -319,4 +318,67 @@ A single Prisma call (e.g. `prisma.user.update()`) is already wrapped in its own
 
 ---
 
-*Next: joins.*
+## Joins
+
+A **join** combines rows from two tables into one result, matching them on a related column (usually a foreign key pointing to a primary key). Whichever table is named first in the query is the **left table** — LEFT JOIN keeps every row from it, filling `NULL` where there's no match on the other side. INNER JOIN keeps only rows that match on both sides.
+
+**Customer**
+| id | name |
+|---|---|
+| 1 | Ravi |
+| 2 | Sita |
+| 3 | Hari |
+
+**Order**
+| id | customerId | product |
+|---|---|---|
+| 101 | 1 | Laptop |
+| 102 | 2 | Keyboard |
+
+```sql
+SELECT Customer.name, Order.product
+FROM Customer
+LEFT JOIN Order ON Customer.id = Order.customerId;
+```
+
+| name | product |
+|---|---|
+| Ravi | Laptop |
+| Sita | Keyboard |
+| Hari | NULL |
+
+Hari has no orders but is still kept, since LEFT JOIN never drops rows from the left table.
+
+### Schema
+
+```prisma
+model Customer {
+  id     Int     @id @default(autoincrement())
+  name   String
+  orders Order[]
+}
+
+model Order {
+  id         Int      @id @default(autoincrement())
+  product    String
+  customerId Int
+  customer   Customer @relation(fields: [customerId], references: [id])
+}
+```
+
+### In Prisma
+
+```javascript
+// LEFT JOIN behavior — every customer returned, orders: [] if none
+const allCustomers = await prisma.customer.findMany({
+  include: { orders: true },
+});
+
+// INNER JOIN behavior — only customers with at least one order
+const customersWithOrders = await prisma.customer.findMany({
+  where: { orders: { some: {} } },
+  include: { orders: true },
+});
+```
+
+Prisma doesn't use `JOIN` keywords directly — `include` generates the join internally and reshapes the result into nested objects/arrays instead of flat rows with `NULL`s. `findMany` always returns an array; each customer object has `orders` nested inside it as its own array, empty if there are no matches.
